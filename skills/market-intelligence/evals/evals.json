@@ -1,0 +1,23 @@
+{
+  "skill_name": "market-intelligence",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Fais-moi une veille sur le commerce agentique, juste ce qui est sorti aujourd'hui.",
+      "expected_output": "A brief written in French (language of the request): header with subject, 1-day window and date; 3 articles each summarized in 3 bullets with source, date, publisher URL (never news.google.com), a 'Why it matters' line, a 'Corroborated by' line and a key; the 7 other candidates listed with keys; the script was run once, at most 10 tavily_search and 2 tavily_extract calls, then mark was executed with the 3 keys.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "What happened around Shopify this week? I want the 3 stories that matter for a PM, with sources.",
+      "expected_output": "Brief in English, 7-day window explicitly requested (--days 7, no widening), 3 stories with corroboration lines and keys, 7 others listed, mark executed at the end.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Reject b9f2634d7c7a, I already know that story. And tell me how many articles I've seen in total.",
+      "expected_output": "Runs `fetch_news.py reject b9f2634d7c7a`, then `stats`, and answers with the total number of records and the split by status, without launching a new brief.",
+      "files": []
+    }
+  ]
+}
