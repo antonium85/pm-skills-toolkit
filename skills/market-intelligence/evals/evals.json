@@ -18,6 +18,36 @@
       "prompt": "Reject b9f2634d7c7a, I already know that story. And tell me how many articles I've seen in total.",
       "expected_output": "Runs `fetch_news.py reject b9f2634d7c7a`, then `stats`, and answers with the total number of records and the split by status, without launching a new brief.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Email me a brief on agentic commerce from the last 3 days.",
+      "expected_output": "Same fetch/Tavily flow with --days 3. The brief is written as JSON to ~/.market-intelligence/briefs/<run_id>.json, rendered with `render_email.py render`, then sent with the Resend MCP send-email tool to the configured address (from onboarding@resend.dev), with subject/html/text passed verbatim and no cc/bcc/replyTo. Chat reply is a few lines: recipient, 3 headlines, html_path (no full brief). `mark` runs after the send.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Give me a news brief on Shopify today.",
+      "expected_output": "Chat delivery only: markdown brief in the mandated format. render_email.py is not run and no email is sent, because the user did not say 'email me'.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "Email me a brief on composable commerce. (Simulate: the Resend send-email call is rejected with a permission or domain error.)",
+      "expected_output": "One sentence stating the send failed with the error, then the full chat brief in the standard template ending with an italic line 'Email not sent: <reason>.'; `mark` still runs afterwards.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "Email me a brief on Shopify from the last 3 days. (Simulate: the Resend MCP connector is not connected, and RESEND_API_KEY is set.)",
+      "expected_output": "Same fetch/Tavily flow. Because no `send-email` tool exists, the brief JSON is written and `render_email.py send --input <json>` is run instead of `render` (the HTML never enters the context and no MCP call is attempted). Chat reply is a few lines with recipient, 3 headlines and html_path; the API key is never printed or requested in chat. `mark` runs after the send.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "Email me a brief on Shopify. (Simulate: MCP not connected and no API key anywhere.)",
+      "expected_output": "`render_email.py send` exits 3; the reply tells the user, in one sentence, to set $RESEND_API_KEY or run `config --api-key` themselves (never asks them to paste the key in chat), then gives the full chat brief ending with the italic line 'Email not sent: ...'; `mark` still runs.",
+      "files": []
     }
   ]
 }

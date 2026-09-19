@@ -12,7 +12,7 @@ Each skill lives in Claude settings for actual use, and gets a copy checked in h
 | [`copypage`](skills/copypage/SKILL.md) | Recreates a web page as a self-contained HTML prototype from screenshots, source code, or live browser access. |
 | [`email-digest`](skills/email-digest/SKILL.md) | Summarizes and triages the last 7 days of Gmail into a prioritized digest. |
 | [`prompt-builder`](skills/prompt-builder/SKILL.md) | Interactively builds a structured prompt (role, task, format, constraints) with the user. |
-| [`market-intelligence`](skills/market-intelligence/SKILL.md) | Daily news brief on a subject: Google News RSS via a deterministic script, top 10 candidates, Tavily cross-check, 3 summarized articles, with a seen/rejected ledger. |
+| [`market-intelligence`](skills/market-intelligence/SKILL.md) | Daily news brief on a subject: Google News RSS via a deterministic script, top 10 candidates, Tavily cross-check, 3 summarized articles, with a seen/rejected ledger. Can email the brief as an HTML newsletter through Resend ("email me"). |
 
 ## Adding a new skill
 
