@@ -96,7 +96,9 @@ DEFAULT_SOURCES = {
               "linkedin.com", "yahoo.com", "marketwatch.com", "benzinga.com", "fool.com"]
     },
     "blocklist": ["einpresswire.com", "openpr.com", "digitaljournal.com", "marketscreener.com",
-                  "streetinsider.com", "globalbankingandfinance.com", "issuewire.com"]
+                  "streetinsider.com", "globalbankingandfinance.com", "issuewire.com"],
+    "paywall": ["wsj.com", "ft.com", "bloomberg.com", "economist.com", "theinformation.com",
+                "stratechery.com", "lesechos.fr", "latribune.fr", "lopinion.fr"]
 }
 
 # --------------------------------------------------------------------------- #
@@ -136,8 +138,16 @@ def tier_of(domain: str, sources: dict) -> int:
     return 0
 
 
+def in_domain_list(domain: str, sources: dict, key: str) -> bool:
+    return any(domain == d or domain.endswith("." + d) for d in sources.get(key, []))
+
+
 def is_blocked(domain: str, sources: dict) -> bool:
-    return any(domain == d or domain.endswith("." + d) for d in sources.get("blocklist", []))
+    return in_domain_list(domain, sources, "blocklist")
+
+
+def is_paywalled(domain: str, sources: dict) -> bool:
+    return in_domain_list(domain, sources, "paywall")
 
 
 def normalize_url(url: str) -> str:
@@ -421,13 +431,15 @@ def run_fetch(args) -> int:
             it["tier"] = tier_of(it["domain"], sources)
             it["tier_rank"] = {1: 0, 2: 1, 0: 2, 3: 3}[it["tier"]]
         not_blocked = [it for it in in_window if not is_blocked(it["domain"], sources)]
-        fresh = [it for it in not_blocked if not is_seen(it, ledger, seen_tokens)]
+        readable = [it for it in not_blocked if not is_paywalled(it["domain"], sources)]
+        fresh = [it for it in readable if not is_seen(it, ledger, seen_tokens)]
         deduped, dropped = dedupe_in_run(fresh)
         score_items(deduped, args.subject, query, days)
         strong = sum(1 for it in deduped if it["match"] >= STRONG_MATCH)
         stats = {"fetched": len(raw), "in_window": len(in_window),
                  "excluded_blocklist": len(in_window) - len(not_blocked),
-                 "excluded_seen": len(not_blocked) - len(fresh), "deduped": dropped,
+                 "excluded_paywall": len(not_blocked) - len(readable),
+                 "excluded_seen": len(readable) - len(fresh), "deduped": dropped,
                  "strong_match": strong}
         enough = len(deduped) >= args.limit and strong >= MIN_STRONG
         if enough or not widen_allowed or days >= WIDEN_LADDER[-1] or widened:

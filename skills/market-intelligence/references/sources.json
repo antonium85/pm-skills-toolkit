@@ -1,5 +1,5 @@
 {
- "_comment": "Source tiers used by scripts/fetch_news.py. Tier 1 = primary/quality press, 2 = solid trade press and first-party vendor blogs, 3 = wires/aggregators (low weight). Blocklist = never shown. Domains match exact or as suffix.",
+ "_comment": "Source tiers used by scripts/fetch_news.py. Tier 1 = primary/quality press, 2 = solid trade press and first-party vendor blogs, 3 = wires/aggregators (low weight). Blocklist = never shown. Paywall = hard-paywalled publishers, never picked as candidates (metered sites stay out of this list, the model catches locked articles at extraction). Domains match exact or as suffix.",
  "tiers": {
   "1": [
    "reuters.com",
@@ -96,5 +96,16 @@
   "streetinsider.com",
   "globalbankingandfinance.com",
   "issuewire.com"
+ ],
+ "paywall": [
+  "wsj.com",
+  "ft.com",
+  "bloomberg.com",
+  "economist.com",
+  "theinformation.com",
+  "stratechery.com",
+  "lesechos.fr",
+  "latribune.fr",
+  "lopinion.fr"
  ]
 }

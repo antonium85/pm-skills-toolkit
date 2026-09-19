@@ -9,14 +9,15 @@ here: the model passes the printed subject/html/text to the Resend MCP
 `send-email` tool.
 
 Subcommands
-  render  --input brief.json [--date YYYY-MM-DD] [--no-save]
+  render  --input brief.json [--date YYYY-MM-DD] [--no-save] [--no-images]
           Prints one JSON: {subject, html, text, html_path, email}.
           `email` is {to, from} from the config, or null when unconfigured.
-  send    --input brief.json [--date YYYY-MM-DD]
+  send    --input brief.json [--date YYYY-MM-DD] [--no-images]
           Renders, then sends through the Resend REST API. This is the FALLBACK
           for when the Resend MCP tool is not connected: the HTML never passes
           through the model. Prints {"sent": true, "id": ...}. Exit codes:
           0 sent, 1 bad input or unconfigured recipient, 3 no API key, 4 API error.
+  Both look up one image per article (see "Images") unless --no-images is given.
   config  [--to ADDRESS] [--from SENDER] [--api-key KEY]
           Sets (or, with no flag, prints) the email defaults. The key is stored
           in config.json (chmod 600) and always printed masked.
@@ -30,13 +31,18 @@ Brief JSON
     "note": "optional italic line",            # widened window, substitution...
     "articles": [                              # 1 to 3 items
       {"title": "...", "source": "Outlet",
-       "corroborated_by": ["a.com", "b.com"],  # [] = single source
-       "bullets": ["fact + what it changes for a PM", "..."],
+       "summary": "Two or three short sentences.",
        "url": "https://publisher/...",
+       "image": "https://...jpg",              # optional, normally found by the renderer
        "from_excerpt": false}
     ],
     "radar": [{"title": "...", "url": "https://..."}]
   }
+
+Images: each article row shows the page's og:image when it can be found and loads
+without a referrer (https, image/* content type). Otherwise a tinted tile with the
+outlet name keeps the zigzag layout. Rows alternate image left / right; on narrow
+screens every row stacks with the image on top.
 
 State lives in $MI_STATE_DIR (default ~/.market-intelligence):
   config.json        email defaults {"email": {"to": ..., "from": ...}, "resend_api_key": ...}
@@ -45,7 +51,8 @@ State lives in $MI_STATE_DIR (default ~/.market-intelligence):
 API key lookup for `send`: $RESEND_API_KEY first, then "resend_api_key" in config.json.
 $RESEND_API_URL overrides the endpoint (tests only).
 
-Standard library only. Python >= 3.9.
+Standard library only, plus `requests` (already needed by fetch_news.py) for the optional
+image lookup. Python >= 3.9.
 """
 
 import argparse
@@ -56,10 +63,18 @@ import ssl
 import stat
 import sys
 import urllib.error
+import re
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+try:  # optional: only the image lookup needs it (some publishers reject urllib); without it, tiles are used
+    import requests
+except ImportError:  # pragma: no cover
+    requests = None
 
 # --------------------------------------------------------------------------- #
 # Labels (the brief is written in the language of the request)
@@ -69,8 +84,7 @@ LABELS = {
     "en": {
         "kicker": "Market intelligence", "top_one": "Top 3 articles of the day",
         "top_n": "Top 3 articles of the last {n} days", "source": "Source",
-        "corroborated": "Corroborated by", "single": "Single source",
-        "why": "Why it matters", "read": "Read the article", "radar": "Also on the radar",
+        "read": "Read the article", "radar": "Also on the radar",
         "excerpt": "summary from excerpt", "subject_line": "{s} — your brief of {d}",
         "footer": "Sent by your market-intelligence skill. Summaries are generated from the linked articles.",
         "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -81,8 +95,7 @@ LABELS = {
     "fr": {
         "kicker": "Veille marché", "top_one": "Top 3 des articles du jour",
         "top_n": "Top 3 des articles des {n} derniers jours", "source": "Source",
-        "corroborated": "Confirmé par", "single": "Source unique",
-        "why": "Pourquoi c'est important", "read": "Lire l'article", "radar": "Aussi sur le radar",
+        "read": "Lire l'article", "radar": "Aussi sur le radar",
         "excerpt": "résumé à partir d'un extrait", "subject_line": "{s} — votre veille du {d}",
         "footer": "Envoyé par votre skill market-intelligence. Les résumés sont générés à partir des articles liés.",
         "days": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
@@ -93,8 +106,7 @@ LABELS = {
     "de": {
         "kicker": "Marktbeobachtung", "top_one": "Top 3 Artikel des Tages",
         "top_n": "Top 3 Artikel der letzten {n} Tage", "source": "Quelle",
-        "corroborated": "Bestätigt durch", "single": "Einzelquelle",
-        "why": "Warum das wichtig ist", "read": "Artikel lesen", "radar": "Außerdem auf dem Radar",
+        "read": "Artikel lesen", "radar": "Außerdem auf dem Radar",
         "excerpt": "Zusammenfassung aus einem Auszug", "subject_line": "{s} — Ihr Überblick vom {d}",
         "footer": "Gesendet von Ihrem market-intelligence-Skill. Die Zusammenfassungen stammen aus den verlinkten Artikeln.",
         "days": ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
@@ -105,8 +117,7 @@ LABELS = {
     "es": {
         "kicker": "Vigilancia de mercado", "top_one": "Top 3 artículos del día",
         "top_n": "Top 3 artículos de los últimos {n} días", "source": "Fuente",
-        "corroborated": "Confirmado por", "single": "Fuente única",
-        "why": "Por qué importa", "read": "Leer el artículo", "radar": "También en el radar",
+        "read": "Leer el artículo", "radar": "También en el radar",
         "excerpt": "resumen a partir de un extracto", "subject_line": "{s} — tu resumen del {d}",
         "footer": "Enviado por tu skill market-intelligence. Los resúmenes se generan a partir de los artículos enlazados.",
         "days": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
@@ -155,6 +166,51 @@ def clean_url(url: str) -> str:
     return p.geturl()
 
 
+def clean_image(url) -> str:
+    """https image URL or "" (an unusable value is dropped, never an error)."""
+    p = urlparse(str(url or "").strip())
+    return p.geturl() if p.scheme == "https" and p.netloc else ""
+
+
+IMG_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+               "Accept-Language": "en-US,en;q=0.9"}
+OG_PATTERNS = [re.compile(p, re.I) for p in (
+    r'<meta[^>]+(?:property|name)=["\']og:image(?::secure_url)?["\'][^>]*?content=["\']([^"\']+)',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:image',
+    r'<meta[^>]+(?:property|name)=["\']twitter:image["\'][^>]*?content=["\']([^"\']+)')]
+
+
+def find_image(page_url: str) -> str:
+    """og:image of the article page, only if it loads without a Referer as an image.
+    Returns "" on any failure (blocked page, hotlink protection, not an image, no `requests`)."""
+    if requests is None:
+        return ""
+    try:
+        with requests.get(page_url, headers=IMG_HEADERS, timeout=6, stream=True) as r:
+            if not r.ok:
+                return ""
+            buf, t0 = b"", time.monotonic()
+            for chunk in r.iter_content(8192):      # the tags live in <head>: never read the whole page
+                buf += chunk
+                if b"</head>" in buf.lower() or len(buf) > 200_000 or time.monotonic() - t0 > 8:
+                    break
+        page = buf.decode("utf-8", "replace")
+        for pat in OG_PATTERNS:
+            m = pat.search(page)
+            img = clean_image(urljoin(page_url, _html.unescape(m.group(1)))) if m else ""
+            if not img:
+                continue
+            with requests.get(img, headers=IMG_HEADERS, timeout=6, stream=True) as ir:
+                ctype = ir.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                length = int(ir.headers.get("Content-Length") or 0)
+                ok = ir.status_code == 200 and ctype in ("image/jpeg", "image/png", "image/gif", "image/webp") \
+                    and (length == 0 or length >= 5000)
+            return img if ok else ""
+    except (requests.RequestException, ValueError):
+        pass
+    return ""
+
+
 def validate(brief: dict) -> dict:
     """Return a normalized copy of the brief or raise ValueError with a precise message."""
     if not str(brief.get("subject", "")).strip():
@@ -168,13 +224,14 @@ def validate(brief: dict) -> dict:
     if out["lang"] not in LABELS:
         out["lang"] = "en"
     for i, a in enumerate(arts, 1):
-        bullets = [str(b).strip() for b in a.get("bullets", []) if str(b).strip()]
-        if not str(a.get("title", "")).strip() or not bullets:
-            raise ValueError(f"article {i}: needs 'title' and at least one bullet")
+        summary = " ".join(str(a.get("summary", "")).split())
+        if not str(a.get("title", "")).strip() or not summary:
+            raise ValueError(f"article {i}: needs 'title' and 'summary'")
+        if ";" in summary:
+            raise ValueError(f"article {i}: no semicolons in 'summary', use two sentences or a comma")
         out["articles"].append({
             "title": str(a["title"]).strip(), "source": str(a.get("source", "")).strip(),
-            "corroborated_by": [str(d).strip() for d in a.get("corroborated_by", []) if str(d).strip()],
-            "bullets": bullets[:3], "url": clean_url(a.get("url", "")),
+            "summary": summary, "url": clean_url(a.get("url", "")), "image": clean_image(a.get("image", "")),
             "from_excerpt": bool(a.get("from_excerpt", False))})
     for r in brief.get("radar", []) or []:
         if str(r.get("title", "")).strip():
@@ -197,26 +254,37 @@ def heading(brief: dict, lab: dict) -> str:
 
 
 def render_html(brief: dict, lab: dict, date_str: str) -> str:
+    W_IMG = 240
+
+    def visual(i: int, a: dict) -> str:
+        """Image linked to the article, or the tinted tile that keeps the zigzag rhythm."""
+        if a["image"]:
+            return (f'<a href="{esc(a["url"])}"><img src="{esc(a["image"])}" alt="{esc(a["title"])}" width="{W_IMG}" class="pic abg" '
+                    f'style="display:block;width:{W_IMG}px;max-width:100%;height:auto;border:0;border-radius:10px;background:{ACCENT_BG};'
+                    f'{f(13, 18)};color:{MUTED}"></a>')
+        return (f'<table role="presentation" width="{W_IMG}" cellpadding="0" cellspacing="0" class="abg tile" '
+                f'style="width:{W_IMG}px;max-width:100%;background:{ACCENT_BG};border-radius:10px"><tr>'
+                f'<td align="center" valign="middle" class="ac" style="height:150px;padding:16px;{f(22, 28, weight=700, serif=True)};color:{ACCENT}">'
+                f'{esc(a["source"] or "#" + str(i))}</td></tr></table>')
+
     def card(i: int, a: dict) -> str:
-        corr = (f"{esc(lab['corroborated'])} {esc(', '.join(a['corroborated_by']))}"
-                if a["corroborated_by"] else esc(lab["single"]))
-        src = f"<b>{esc(a['source'])}</b> · " if a["source"] else ""
-        bullets = "".join(
-            f'<tr><td class="ac" style="width:18px;vertical-align:top;padding:0 0 8px;color:{ACCENT};font-size:16px;line-height:24px">•</td>'
-            f'<td class="ink" style="padding:0 0 8px;{f(15, 24)};color:{INK}">{esc(b)}</td></tr>'
-            for b in a["bullets"])
+        left = i % 2 == 1                                   # odd rows: image on the left
+        src = f"<b>{esc(a['source'])}</b>" if a["source"] else ""
         excerpt = (f'<p class="mu" style="margin:0 0 12px;{f(13, 18, extra="font-style:italic;")};color:{MUTED}">'
                    f'({esc(lab["excerpt"])})</p>' if a["from_excerpt"] else "")
+        gap = f"padding:0 20px 0 0" if left else "padding:0 0 0 20px"
+        # Even rows use dir=rtl on the row so the image (first in the DOM) lands on the right on wide
+        # screens, while stacked rows on phones keep DOM order: image on top.
         return f"""
-<tr><td style="padding:0 0 16px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="card" style="background:{CARD};border:1px solid {LINE};border-radius:14px"><tr><td style="padding:22px 24px">
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px"><tr>
-<td class="abg ac" style="width:28px;height:28px;background:{ACCENT_BG};color:{ACCENT};border-radius:14px;text-align:center;{f(14, 28, weight=700)}">{i}</td>
-<td class="mu" style="padding-left:10px;{f(13, 18)};color:{MUTED}">{src}{corr}</td></tr></table>
-<h2 class="ink" style="margin:0 0 14px;{f(21, 28, weight=700, serif=True)};color:{INK}">{esc(a['title'])}</h2>
-<p class="mu" style="margin:0 0 8px;{f(11, 16, weight=700)};letter-spacing:1px;text-transform:uppercase;color:{MUTED}">{esc(lab['why'])}</p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{bullets}</table>{excerpt}
-<a href="{esc(a['url'])}" style="display:inline-block;margin-top:6px;padding:10px 20px;background:{ACCENT};color:#ffffff;text-decoration:none;border-radius:999px;{f(14, 20, weight=600)}">{esc(lab['read'])} →</a>
+<tr><td style="padding:0 4px 28px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"{'' if left else ' dir="rtl"'}><tr>
+<td class="stack" dir="ltr" width="{W_IMG + 20}" valign="top" style="width:{W_IMG + 20}px;{gap};direction:ltr">{visual(i, a)}</td>
+<td class="stack" dir="ltr" valign="top" style="direction:ltr;text-align:left">
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 10px"><tr>
+<td class="abg ac" style="width:26px;height:26px;background:{ACCENT_BG};color:{ACCENT};border-radius:13px;text-align:center;{f(13, 26, weight=700)}">{i}</td>
+<td class="mu" style="padding-left:10px;{f(13, 18)};color:{MUTED}">{src}</td></tr></table>
+<h2 class="ink" style="margin:0 0 10px;{f(20, 26, weight=700, serif=True)};color:{INK}">{esc(a['title'])}</h2>
+<p class="ink" style="margin:0 0 14px;{f(15, 23)};color:{INK}">{esc(a['summary'])}</p>{excerpt}
+<a href="{esc(a['url'])}" style="display:inline-block;padding:9px 18px;background:{ACCENT};color:#ffffff;text-decoration:none;border-radius:999px;{f(14, 20, weight=600)}">{esc(lab['read'])} →</a>
 </td></tr></table></td></tr>"""
 
     cards = "".join(card(i, a) for i, a in enumerate(brief["articles"], 1))
@@ -240,13 +308,15 @@ def render_html(brief: dict, lab: dict, date_str: str) -> str:
 <style>
 @media (prefers-color-scheme:dark){{
 body,.bg{{background:#15181c!important}}
-.card{{background:#1f242a!important;border-color:#333a42!important}}
+.pic{{filter:brightness(.88)}}
 .ink,.ink a{{color:#eceff2!important}}
 .mu{{color:#9aa4ae!important}}
 .abg{{background:#3a2418!important}}
 .ac{{color:#fb923c!important}}
 }}
-@media (max-width:620px){{.wrap{{width:100%!important}}}}
+@media (max-width:620px){{.wrap{{width:100%!important}}
+.stack{{display:block!important;width:100%!important;padding:0 0 14px!important}}
+.pic,.tile{{width:100%!important}}}}
 </style></head>
 <body class="bg" style="margin:0;padding:0;background:{BG};font-family:{SANS}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{preheader}</div>
@@ -265,9 +335,7 @@ body,.bg{{background:#15181c!important}}
 def render_text(brief: dict, lab: dict, date_str: str) -> str:
     lines = [f"{brief['subject']} — {date_str}", "", heading(brief, lab).upper(), ""]
     for i, a in enumerate(brief["articles"], 1):
-        corr = (f"{lab['corroborated']} {', '.join(a['corroborated_by'])}" if a["corroborated_by"] else lab["single"])
-        lines += [f"{i}. {a['title']}", f"{lab['source']}: {a['source']} · {corr}", f"{lab['why']}:"]
-        lines += [f"- {b}" for b in a["bullets"]]
+        lines += [f"{i}. {a['title']}", f"{lab['source']}: {a['source']}", a["summary"]]
         if a["from_excerpt"]:
             lines.append(f"({lab['excerpt']})")
         lines += [a["url"], ""]
@@ -299,6 +367,11 @@ def build_email(args) -> dict:
         date = datetime.strptime(args.date, "%Y-%m-%d") if args.date else datetime.now()
     except (TypeError, AttributeError) as e:
         raise ValueError(f"malformed brief: {e}") from e
+    if not getattr(args, "no_images", False):
+        with ThreadPoolExecutor(max_workers=3) as pool:      # slow publishers must not add up
+            found = list(pool.map(lambda a: a["image"] or find_image(a["url"]), brief["articles"]))
+        for a, img in zip(brief["articles"], found):
+            a["image"] = img
     lab = LABELS[brief["lang"]]
     date_str = fmt_date(date, lab)
     html_doc = render_html(brief, lab, date_str)
@@ -412,10 +485,12 @@ def main(argv=None) -> int:
     r.add_argument("--input", required=True, help="brief JSON file, or - for stdin")
     r.add_argument("--date", help="YYYY-MM-DD shown in the header (default today)")
     r.add_argument("--no-save", action="store_true", help="do not write briefs/<run>.html")
+    r.add_argument("--no-images", action="store_true", help="skip the og:image lookup (tiles only)")
     r.set_defaults(func=run_render)
     sd = sub.add_parser("send", help="render and send through the Resend REST API (MCP fallback)")
     sd.add_argument("--input", required=True, help="brief JSON file, or - for stdin")
     sd.add_argument("--date", help="YYYY-MM-DD shown in the header (default today)")
+    sd.add_argument("--no-images", action="store_true", help="skip the og:image lookup (tiles only)")
     sd.set_defaults(func=run_send)
     c = sub.add_parser("config", help="set or show the email defaults")
     c.add_argument("--to")
