@@ -200,13 +200,13 @@ def render_html(brief: dict, lab: dict, date_str: str) -> str:
                    f'({esc(lab["excerpt"])})</p>' if a["from_excerpt"] else "")
         return f"""
 <tr><td style="padding:0 0 16px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="card" style="background:{CARD};border:1px solid {LINE};border-radius:14px"><tr><td style="padding:22px 24px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="card" style="background:{CARD};border:1px solid {LINE};border-radius:14px"><tr><td class="pad" style="padding:30px 36px">
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px"><tr>
 <td class="abg ac" style="width:28px;height:28px;background:{ACCENT_BG};color:{ACCENT};border-radius:14px;text-align:center;{f(14, 28, weight=700)}">{i}</td>
 <td class="mu" style="padding-left:10px;{f(13, 18)};color:{MUTED}">{src}</td></tr></table>
-<h2 class="ink" style="margin:0 0 12px;{f(21, 28, weight=700, serif=True)};color:{INK}">{esc(a['title'])}</h2>
-<p class="ink" style="margin:0 0 14px;{f(15, 24)};color:{INK}">{esc(a['summary'])}</p>{excerpt}
-<a href="{esc(a['url'])}" style="display:inline-block;margin-top:6px;padding:10px 20px;background:{ACCENT};color:#ffffff;text-decoration:none;border-radius:999px;{f(14, 20, weight=600)}">{esc(lab['read'])} →</a>
+<h2 class="ink" style="margin:0 0 12px;{f(25, 33, weight=700, serif=True)};color:{INK}">{esc(a['title'])}</h2>
+<p class="ink" style="margin:0 0 18px;{f(16, 26)};color:{INK}">{esc(a['summary'])}</p>{excerpt}
+<a href="{esc(a['url'])}" style="display:inline-block;margin-top:6px;padding:12px 24px;background:{ACCENT};color:#ffffff;text-decoration:none;border-radius:999px;{f(14, 20, weight=600)}">{esc(lab['read'])} →</a>
 </td></tr></table></td></tr>"""
 
     cards = "".join(card(i, a) for i, a in enumerate(brief["articles"], 1))
@@ -236,12 +236,12 @@ body,.bg{{background:#15181c!important}}
 .abg{{background:#3a2418!important}}
 .ac{{color:#fb923c!important}}
 }}
-@media (max-width:620px){{.wrap{{width:100%!important}}}}
+@media (max-width:740px){{.wrap{{width:100%!important}}.pad{{padding:24px 20px!important}}}}
 </style></head>
 <body class="bg" style="margin:0;padding:0;background:{BG};font-family:{SANS}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">{preheader}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg" style="background:{BG}"><tr><td align="center" style="padding:28px 12px">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="wrap" style="width:600px;max-width:100%;font-family:{SANS}">
+<table role="presentation" width="720" cellpadding="0" cellspacing="0" class="wrap" style="width:720px;max-width:100%;font-family:{SANS}">
 <tr><td style="padding:0 4px 22px">
 <p class="ac" style="margin:0 0 6px;{f(12, 16, weight=700)};letter-spacing:2px;text-transform:uppercase;color:{ACCENT}">{esc(lab['kicker'])}</p>
 <h1 class="ink" style="margin:0 0 6px;{f(32, 38, weight=700, serif=True)};color:{INK}">{esc(brief['subject'][:1].upper() + brief['subject'][1:])}</h1>
