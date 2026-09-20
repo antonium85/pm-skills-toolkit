@@ -54,12 +54,6 @@
       "prompt": "Give me a news brief on agentic commerce. (Simulate: one of the top-3 URLs extracts as a two-sentence teaser ending with 'Subscribe to keep reading'.)",
       "expected_output": "The paywalled article is not summarized and not written from its search excerpt: it is substituted with the next candidate (a second extraction is run), moved to 'Also on the radar', and the substitution is mentioned in the closing italic line. No domain from the `paywall` list in sources.json appears among the candidates; at most 3 tavily_extract calls.",
       "files": []
-    },
-    {
-      "id": 10,
-      "prompt": "Email me a brief on agentic commerce. (Simulate: one of the 3 articles' pages returns 403 to scripts.)",
-      "expected_output": "The model does not search for images and puts no image field in the brief JSON. The rendered HTML shows the 3 articles as zigzag rows (image left, right, left), the article whose page cannot be read shows a tinted tile with the outlet name instead of an image, no article row is missing, the render does not fail, and there are no bullets, 'Why it matters' or corroboration text in the email.",
-      "files": []
     }
   ]
 }

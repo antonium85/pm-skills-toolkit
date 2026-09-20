@@ -325,13 +325,7 @@ Skip this step for chat delivery. Otherwise, in this order:
    (`en` / `fr` / `de` / `es`, the language of the brief), `window_days`,
    optional `note` (the italic line), `articles[]` (`title`, `source`,
    `summary` (a string), `url`, `from_excerpt`), `radar[]` (`title`, `url`). Never put HTML in it: the
-   renderer escapes everything. Do not look for images yourself: the
-   renderer finds one per article (the page's `og:image`, checked to load
-   without a referrer) and lays the three articles out in a zigzag, image
-   left, right, left. An article without a usable image gets a tinted tile
-   with the outlet name, so a missing image is never an error. The lookup
-   runs in parallel and takes a few seconds, up to about 15 when a publisher
-   is slow. `--no-images` skips it.
+   renderer escapes everything.
 2. **Pick the send path.** Default: the **Resend MCP** tool `send-email` (its
    full name ends with `send-email`; load it first if it is deferred). Use
    the **REST API fallback** (2b) when that tool does not exist in the
@@ -434,10 +428,10 @@ articles come back next time, which is better than losing them unseen.
 
 - `scripts/fetch_news.py` — the mechanical steps; `python3 fetch_news.py -h`.
   Only dependency: `requests`.
-- `scripts/render_email.py` — renders the brief JSON to the zigzag newsletter HTML and
-  text (`render`, with the article image lookup), sends it through the Resend REST API when the MCP is not
+- `scripts/render_email.py` — renders the brief JSON to the newsletter HTML and
+  text (`render`), sends it through the Resend REST API when the MCP is not
   connected (`send`), and stores the email defaults and API key (`config`).
-  Standard library only, plus `requests` (already required by `fetch_news.py`) for the optional image lookup.
+  Standard library only.
 - `references/sources.json` — source tiers, blocklist and hard-paywall list, editable.
 - `references/ledger.md` — format of the seen-articles ledger, matching rules,
   retention (90 days).
