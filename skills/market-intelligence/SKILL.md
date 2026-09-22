@@ -358,11 +358,12 @@ Skip this step for chat delivery. Otherwise, in this order:
    ```
 
    It prints `{"sent": true, "id": ...}` on success. The API key comes from
-   `$RESEND_API_KEY`, else from `~/.market-intelligence/config.json`; it is
-   never printed, so never ask for it or echo it in chat. Exit codes: `3` no
-   key (tell the user to set `$RESEND_API_KEY` or run the `config --api-key`
-   command below themselves), `4` API error (the `error` field has Resend's
-   message), `1` bad brief or no recipient configured.
+   `$RESEND_API_KEY`, else `RESEND_API_KEY=...` in `~/.market-intelligence/.env`,
+   else `~/.market-intelligence/config.json`; it is never printed, so never ask
+   for it or echo it in chat. Exit codes: `3` no key (tell the user to set
+   `$RESEND_API_KEY`, drop it in `~/.market-intelligence/.env`, or run the
+   `config --api-key` command below themselves), `4` API error (the `error`
+   field has Resend's message), `1` bad brief or no recipient configured.
 3. **Reply in chat in a few lines**: sent to `<to>`, the 5 headlines, and
    the `html_path` for a browser preview (both render and send print it).
    Do not print the whole brief.
@@ -375,10 +376,13 @@ python3 <skill_dir>/scripts/render_email.py config --to <address> --from "Market
 
 `onboarding@resend.dev` only delivers to the address of the Resend account;
 a verified domain is needed for any other recipient. The fallback needs a
-Resend API key, which the **user** provides (an environment variable, or
+Resend API key, which the **user** provides: an environment variable, a
+`RESEND_API_KEY=...` line in `~/.market-intelligence/.env` (`chmod 600` it;
+this is the recommended way to feed a cron job — it keeps the key out of the
+crontab itself, which `crontab -l` prints in the clear), or
 `render_email.py config --api-key <key>`, stored in `config.json` with
-owner-only permissions); this is what lets a scheduled run send without the
-MCP connector.
+owner-only permissions. Any of these is what lets a scheduled run send
+without the MCP connector.
 
 Failure handling. If `email` is `null` (not configured), tell the user the
 config command above, and on a scheduled run skip the send. If every path

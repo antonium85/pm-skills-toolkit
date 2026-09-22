@@ -40,7 +40,10 @@ State lives in $MI_STATE_DIR (default ~/.market-intelligence):
   config.json        email defaults {"email": {"to": ..., "from": ...}, "resend_api_key": ...}
   briefs/<run>.html  the rendered newsletter, to open in a browser
 
-API key lookup for `send`: $RESEND_API_KEY first, then "resend_api_key" in config.json.
+API key lookup for `send`: $RESEND_API_KEY first, then RESEND_API_KEY=... in
+$MI_STATE_DIR/.env (one KEY=VALUE per line, '#' comments allowed, an optional
+'export ' prefix is stripped), then "resend_api_key" in config.json. The .env
+file lets a cron job keep the key out of the crontab; `chmod 600` it yourself.
 $RESEND_API_URL overrides the endpoint (tests only).
 
 Standard library only. Python >= 3.9.
@@ -299,7 +302,27 @@ def run_render(args) -> int:
     return 0
 
 
+def load_dotenv() -> None:
+    """Load KEY=VALUE lines from $MI_STATE_DIR/.env into the environment, without
+    overriding a variable already set (e.g. exported by the crontab itself)."""
+    p = state_dir() / ".env"
+    if not p.exists():
+        return
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def api_key() -> str:
+    load_dotenv()
     return (os.environ.get("RESEND_API_KEY") or read_config().get("resend_api_key") or "").strip()
 
 
