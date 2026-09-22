@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "Fais-moi une veille sur le commerce agentique, juste ce qui est sorti aujourd'hui.",
-      "expected_output": "A brief written in French (language of the request): a 'Top 3 des articles du jour' title, then 3 articles each with a source line naming the outlet only, a summary paragraph of 2 or 3 short sentences (no bullets, no 'Pourquoi c'est important', no 'confirmé par' / 'source unique'), and the publisher URL (never news.google.com); then 'Aussi sur le radar' with the 7 other candidates as headline and URL only. No keys and no preamble. The script was run once, at most 10 tavily_search and 3 tavily_extract calls, then mark was executed with the 3 keys.",
+      "expected_output": "A brief written in French (language of the request): a 'Top 5 des articles du jour' title, then 5 articles each with a source line naming the outlet only, a summary paragraph of 2 or 3 short sentences (no bullets, no 'Pourquoi c'est important', no 'confirmé par' / 'source unique'), and the publisher URL (never news.google.com). No 'Also on the radar' / 'Aussi sur le radar' list, no keys and no preamble. The script was run once, at most 10 tavily_search and 3 tavily_extract calls, then mark was executed with the 5 keys.",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "What happened around Shopify this week? I want the 3 stories that matter for a PM, with sources.",
-      "expected_output": "Brief in English, 7-day window explicitly requested (--days 7, no widening), title 'Top 3 articles of the last 7 days', 3 stories each with outlet-only source line and a 2-3 sentence summary paragraph (no bullets, no 'Why it matters', no corroboration line), 7 others listed as headline and URL, mark executed at the end.",
+      "prompt": "What happened around Shopify this week? I want the stories that matter for a PM, with sources.",
+      "expected_output": "Brief in English, 7-day window explicitly requested (--days 7, no widening), title 'Top 5 articles of the last 7 days', 5 stories each with outlet-only source line and a 2-3 sentence summary paragraph (no bullets, no 'Why it matters', no corroboration line). No list of the other candidates. Mark executed at the end.",
       "files": []
     },
     {
@@ -22,7 +22,7 @@
     {
       "id": 4,
       "prompt": "Email me a brief on agentic commerce from the last 3 days.",
-      "expected_output": "Same fetch/Tavily flow with --days 3. The brief is written as JSON to ~/.market-intelligence/briefs/<run_id>.json, rendered with `render_email.py render`, then sent with the Resend MCP send-email tool to the configured address (from onboarding@resend.dev), with subject/html/text passed verbatim and no cc/bcc/replyTo. Chat reply is a few lines: recipient, 3 headlines, html_path (no full brief). `mark` runs after the send.",
+      "expected_output": "Same fetch/Tavily flow with --days 3. The brief is written as JSON to ~/.market-intelligence/briefs/<run_id>.json, rendered with `render_email.py render`, then sent with the Resend MCP send-email tool to the configured address (from onboarding@resend.dev), with subject/html/text passed verbatim and no cc/bcc/replyTo. Chat reply is a few lines: recipient, 5 headlines, html_path (no full brief). `mark` runs after the send.",
       "files": []
     },
     {
@@ -40,7 +40,7 @@
     {
       "id": 7,
       "prompt": "Email me a brief on Shopify from the last 3 days. (Simulate: the Resend MCP connector is not connected, and RESEND_API_KEY is set.)",
-      "expected_output": "Same fetch/Tavily flow. Because no `send-email` tool exists, the brief JSON is written and `render_email.py send --input <json>` is run instead of `render` (the HTML never enters the context and no MCP call is attempted). Chat reply is a few lines with recipient, 3 headlines and html_path; the API key is never printed or requested in chat. `mark` runs after the send.",
+      "expected_output": "Same fetch/Tavily flow. Because no `send-email` tool exists, the brief JSON is written and `render_email.py send --input <json>` is run instead of `render` (the HTML never enters the context and no MCP call is attempted). Chat reply is a few lines with recipient, 5 headlines and html_path; the API key is never printed or requested in chat. `mark` runs after the send.",
       "files": []
     },
     {
@@ -51,8 +51,8 @@
     },
     {
       "id": 9,
-      "prompt": "Give me a news brief on agentic commerce. (Simulate: one of the top-3 URLs extracts as a two-sentence teaser ending with 'Subscribe to keep reading'.)",
-      "expected_output": "The paywalled article is not summarized and not written from its search excerpt: it is substituted with the next candidate (a second extraction is run), moved to 'Also on the radar', and the substitution is mentioned in the closing italic line. No domain from the `paywall` list in sources.json appears among the candidates; at most 3 tavily_extract calls.",
+      "prompt": "Give me a news brief on agentic commerce. (Simulate: one of the top-5 URLs extracts as a two-sentence teaser ending with 'Subscribe to keep reading'.)",
+      "expected_output": "The paywalled article is not summarized and not written from its search excerpt: it is substituted with the next candidate (a second extraction is run) and simply dropped, not shown anywhere in the brief; the substitution is mentioned in the closing italic line. No domain from the `paywall` list in sources.json appears among the candidates; at most 3 tavily_extract calls.",
       "files": []
     }
   ]

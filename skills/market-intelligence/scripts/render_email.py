@@ -28,13 +28,12 @@ Brief JSON
     "lang": "en",                              # en | fr | de | es (labels only)
     "window_days": 1,
     "note": "optional italic line",            # widened window, substitution...
-    "articles": [                              # 1 to 3 items
+    "articles": [                              # 1 to 5 items
       {"title": "...", "source": "Outlet",
        "summary": "Two or three short sentences.",
        "url": "https://publisher/...",
        "from_excerpt": false}
-    ],
-    "radar": [{"title": "...", "url": "https://..."}]
+    ]
   }
 
 State lives in $MI_STATE_DIR (default ~/.market-intelligence):
@@ -67,9 +66,9 @@ from urllib.parse import urlparse
 
 LABELS = {
     "en": {
-        "kicker": "Market intelligence", "top_one": "Top 3 articles of the day",
-        "top_n": "Top 3 articles of the last {n} days", "source": "Source",
-        "read": "Read the article", "radar": "Also on the radar",
+        "kicker": "Market intelligence", "top_one": "Top 5 articles of the day",
+        "top_n": "Top 5 articles of the last {n} days", "source": "Source",
+        "read": "Read the article",
         "excerpt": "summary from excerpt", "subject_line": "{s} — your brief of {d}",
         "footer": "Sent by your market-intelligence skill. Summaries are generated from the linked articles.",
         "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -78,9 +77,9 @@ LABELS = {
         "date": "{wd}, {m} {d}, {y}",
     },
     "fr": {
-        "kicker": "Veille marché", "top_one": "Top 3 des articles du jour",
-        "top_n": "Top 3 des articles des {n} derniers jours", "source": "Source",
-        "read": "Lire l'article", "radar": "Aussi sur le radar",
+        "kicker": "Veille marché", "top_one": "Top 5 des articles du jour",
+        "top_n": "Top 5 des articles des {n} derniers jours", "source": "Source",
+        "read": "Lire l'article",
         "excerpt": "résumé à partir d'un extrait", "subject_line": "{s} — votre veille du {d}",
         "footer": "Envoyé par votre skill market-intelligence. Les résumés sont générés à partir des articles liés.",
         "days": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
@@ -89,9 +88,9 @@ LABELS = {
         "date": "{wd} {d} {m} {y}",
     },
     "de": {
-        "kicker": "Marktbeobachtung", "top_one": "Top 3 Artikel des Tages",
-        "top_n": "Top 3 Artikel der letzten {n} Tage", "source": "Quelle",
-        "read": "Artikel lesen", "radar": "Außerdem auf dem Radar",
+        "kicker": "Marktbeobachtung", "top_one": "Top 5 Artikel des Tages",
+        "top_n": "Top 5 Artikel der letzten {n} Tage", "source": "Quelle",
+        "read": "Artikel lesen",
         "excerpt": "Zusammenfassung aus einem Auszug", "subject_line": "{s} — Ihr Überblick vom {d}",
         "footer": "Gesendet von Ihrem market-intelligence-Skill. Die Zusammenfassungen stammen aus den verlinkten Artikeln.",
         "days": ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
@@ -100,9 +99,9 @@ LABELS = {
         "date": "{wd}, {d}. {m} {y}",
     },
     "es": {
-        "kicker": "Vigilancia de mercado", "top_one": "Top 3 artículos del día",
-        "top_n": "Top 3 artículos de los últimos {n} días", "source": "Fuente",
-        "read": "Leer el artículo", "radar": "También en el radar",
+        "kicker": "Vigilancia de mercado", "top_one": "Top 5 artículos del día",
+        "top_n": "Top 5 artículos de los últimos {n} días", "source": "Fuente",
+        "read": "Leer el artículo",
         "excerpt": "resumen a partir de un extracto", "subject_line": "{s} — tu resumen del {d}",
         "footer": "Enviado por tu skill market-intelligence. Los resúmenes se generan a partir de los artículos enlazados.",
         "days": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
@@ -156,11 +155,11 @@ def validate(brief: dict) -> dict:
     if not str(brief.get("subject", "")).strip():
         raise ValueError("missing 'subject'")
     arts = brief.get("articles")
-    if not isinstance(arts, list) or not 1 <= len(arts) <= 3:
-        raise ValueError("'articles' must hold 1 to 3 items")
+    if not isinstance(arts, list) or not 1 <= len(arts) <= 5:
+        raise ValueError("'articles' must hold 1 to 5 items")
     out = {"subject": str(brief["subject"]).strip(), "lang": brief.get("lang", "en"),
            "window_days": int(brief.get("window_days", 1) or 1), "note": str(brief.get("note", "") or "").strip(),
-           "run_id": str(brief.get("run_id", "") or ""), "articles": [], "radar": []}
+           "run_id": str(brief.get("run_id", "") or ""), "articles": []}
     if out["lang"] not in LABELS:
         out["lang"] = "en"
     for i, a in enumerate(arts, 1):
@@ -173,9 +172,6 @@ def validate(brief: dict) -> dict:
             "title": str(a["title"]).strip(), "source": str(a.get("source", "")).strip(),
             "summary": summary, "url": clean_url(a.get("url", "")),
             "from_excerpt": bool(a.get("from_excerpt", False))})
-    for r in brief.get("radar", []) or []:
-        if str(r.get("title", "")).strip():
-            out["radar"].append({"title": str(r["title"]).strip(), "url": clean_url(r.get("url", ""))})
     return out
 
 
@@ -210,15 +206,6 @@ def render_html(brief: dict, lab: dict, date_str: str) -> str:
 </td></tr></table></td></tr>"""
 
     cards = "".join(card(i, a) for i, a in enumerate(brief["articles"], 1))
-    radar = ""
-    if brief["radar"]:
-        items = "".join(
-            f'<tr><td class="ac" style="width:18px;vertical-align:top;padding:0 0 10px;color:{ACCENT};{f(15, 22)}">›</td>'
-            f'<td style="padding:0 0 10px;{f(15, 22)}"><a href="{esc(r["url"])}" class="ink" style="color:{INK};text-decoration:underline;text-decoration-color:{LINE}">{esc(r["title"])}</a></td></tr>'
-            for r in brief["radar"])
-        radar = f"""
-<tr><td style="padding:12px 4px 4px"><h3 class="ink" style="margin:0 0 12px;{f(17, 24, weight=700, serif=True)};color:{INK}">{esc(lab['radar'])}</h3>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{items}</table></td></tr>"""
     note = (f'<tr><td class="mu" style="padding:8px 4px 0;{f(13, 19, extra="font-style:italic;")};color:{MUTED}">{esc(brief["note"])}</td></tr>'
             if brief["note"] else "")
     preheader = esc(brief["articles"][0]["title"])
@@ -247,7 +234,7 @@ body,.bg{{background:#15181c!important}}
 <h1 class="ink" style="margin:0 0 6px;{f(32, 38, weight=700, serif=True)};color:{INK}">{esc(brief['subject'][:1].upper() + brief['subject'][1:])}</h1>
 <p class="mu" style="margin:0;{f(14, 20)};color:{MUTED}">{esc(date_str)}</p></td></tr>
 <tr><td style="padding:0 4px 14px"><h2 class="ink" style="margin:0;{f(13, 18, weight=700)};letter-spacing:1px;text-transform:uppercase;color:{INK}">{esc(heading(brief, lab))}</h2></td></tr>
-{cards}{radar}{note}
+{cards}{note}
 <tr><td class="mu" style="padding:24px 4px 0;border-top:1px solid {LINE};{f(12, 18)};color:{MUTED}">{esc(lab['footer'])}</td></tr>
 </table></td></tr></table></body></html>"""
 
@@ -259,8 +246,6 @@ def render_text(brief: dict, lab: dict, date_str: str) -> str:
         if a["from_excerpt"]:
             lines.append(f"({lab['excerpt']})")
         lines += [a["url"], ""]
-    if brief["radar"]:
-        lines += [lab["radar"], *[f"- {r['title']} — {r['url']}" for r in brief["radar"]], ""]
     if brief["note"]:
         lines += [brief["note"], ""]
     return "\n".join(lines).rstrip() + "\n"
