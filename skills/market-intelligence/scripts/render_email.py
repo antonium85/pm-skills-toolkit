@@ -12,11 +12,18 @@ Subcommands
   render  --input brief.json [--date YYYY-MM-DD] [--no-save]
           Prints one JSON: {subject, html, text, html_path, email}.
           `email` is {to, from} from the config, or null when unconfigured.
+  verify  --input brief.json [--date YYYY-MM-DD]
+          Renders, then checks the OUTPUT against the brief (html parsed back: balanced
+          tags, every title/summary/link present and in order, trends block, heading
+          count, no news.google.com link, Gmail 102 KB limit, no leftover placeholder,
+          recipient configured). Prints {ok, errors, warnings, html_path, to}, never the
+          HTML. Exit 0 ok, 5 errors. `render` also embeds the same report as `verify`.
   send    --input brief.json [--date YYYY-MM-DD]
-          Renders, then sends through the Resend REST API. This is the FALLBACK
+          Renders, VERIFIES (refuses to send on errors, exit 5), then sends through the Resend REST API. This is the FALLBACK
           for when the Resend MCP tool is not connected: the HTML never passes
           through the model. Prints {"sent": true, "id": ...}. Exit codes:
-          0 sent, 1 bad input or unconfigured recipient, 3 no API key, 4 API error.
+          0 sent, 1 bad input or unconfigured recipient, 3 no API key, 4 API error,
+          5 verification failed (nothing sent).
   config  [--to ADDRESS] [--from SENDER] [--api-key KEY]
           Sets (or, with no flag, prints) the email defaults. The key is stored
           in config.json (chmod 600) and always printed masked.
@@ -27,6 +34,7 @@ Brief JSON
     "subject": "agentic commerce",             # human label of the watch
     "lang": "en",                              # en | fr | de | es (labels only)
     "window_days": 1,
+    "trends": "Three or four short sentences.", # trends seen across the articles, shown on top
     "note": "optional italic line",            # widened window, substitution...
     "articles": [                              # 1 to 5 items
       {"title": "...", "source": "Outlet",
@@ -53,12 +61,14 @@ import argparse
 import html as _html
 import json
 import os
+import re
 import ssl
 import stat
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -69,9 +79,10 @@ from urllib.parse import urlparse
 
 LABELS = {
     "en": {
-        "kicker": "Market intelligence", "top_one": "Top 5 articles of the day",
-        "top_n": "Top 5 articles of the last {n} days", "source": "Source",
-        "read": "Read the article",
+        "kicker": "Market intelligence", "top_one": "Top {c} articles of the day",
+        "top_n": "Top {c} articles of the last {n} days",
+        "single_one": "Top article of the day", "single_n": "Top article of the last {n} days", "source": "Source",
+        "read": "Read the article", "trends": "Trends at a glance",
         "excerpt": "summary from excerpt", "subject_line": "{s} — your brief of {d}",
         "footer": "Sent by your market-intelligence skill. Summaries are generated from the linked articles.",
         "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -80,9 +91,10 @@ LABELS = {
         "date": "{wd}, {m} {d}, {y}",
     },
     "fr": {
-        "kicker": "Veille marché", "top_one": "Top 5 des articles du jour",
-        "top_n": "Top 5 des articles des {n} derniers jours", "source": "Source",
-        "read": "Lire l'article",
+        "kicker": "Veille marché", "top_one": "Top {c} des articles du jour",
+        "top_n": "Top {c} des articles des {n} derniers jours",
+        "single_one": "Article du jour", "single_n": "Article des {n} derniers jours", "source": "Source",
+        "read": "Lire l'article", "trends": "Tendances à retenir",
         "excerpt": "résumé à partir d'un extrait", "subject_line": "{s} — votre veille du {d}",
         "footer": "Envoyé par votre skill market-intelligence. Les résumés sont générés à partir des articles liés.",
         "days": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
@@ -91,9 +103,10 @@ LABELS = {
         "date": "{wd} {d} {m} {y}",
     },
     "de": {
-        "kicker": "Marktbeobachtung", "top_one": "Top 5 Artikel des Tages",
-        "top_n": "Top 5 Artikel der letzten {n} Tage", "source": "Quelle",
-        "read": "Artikel lesen",
+        "kicker": "Marktbeobachtung", "top_one": "Top {c} Artikel des Tages",
+        "top_n": "Top {c} Artikel der letzten {n} Tage",
+        "single_one": "Artikel des Tages", "single_n": "Artikel der letzten {n} Tage", "source": "Quelle",
+        "read": "Artikel lesen", "trends": "Trends im Überblick",
         "excerpt": "Zusammenfassung aus einem Auszug", "subject_line": "{s} — Ihr Überblick vom {d}",
         "footer": "Gesendet von Ihrem market-intelligence-Skill. Die Zusammenfassungen stammen aus den verlinkten Artikeln.",
         "days": ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
@@ -102,9 +115,10 @@ LABELS = {
         "date": "{wd}, {d}. {m} {y}",
     },
     "es": {
-        "kicker": "Vigilancia de mercado", "top_one": "Top 5 artículos del día",
-        "top_n": "Top 5 artículos de los últimos {n} días", "source": "Fuente",
-        "read": "Leer el artículo",
+        "kicker": "Vigilancia de mercado", "top_one": "Top {c} artículos del día",
+        "top_n": "Top {c} artículos de los últimos {n} días",
+        "single_one": "Artículo del día", "single_n": "Artículo de los últimos {n} días", "source": "Fuente",
+        "read": "Leer el artículo", "trends": "Tendencias clave",
         "excerpt": "resumen a partir de un extracto", "subject_line": "{s} — tu resumen del {d}",
         "footer": "Enviado por tu skill market-intelligence. Los resúmenes se generan a partir de los artículos enlazados.",
         "days": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
@@ -162,7 +176,10 @@ def validate(brief: dict) -> dict:
         raise ValueError("'articles' must hold 1 to 5 items")
     out = {"subject": str(brief["subject"]).strip(), "lang": brief.get("lang", "en"),
            "window_days": int(brief.get("window_days", 1) or 1), "note": str(brief.get("note", "") or "").strip(),
+           "trends": " ".join(str(brief.get("trends", "") or "").split()),
            "run_id": str(brief.get("run_id", "") or ""), "articles": []}
+    if ";" in out["trends"]:
+        raise ValueError("no semicolons in 'trends', use two sentences or a comma")
     if out["lang"] not in LABELS:
         out["lang"] = "en"
     for i, a in enumerate(arts, 1):
@@ -188,8 +205,9 @@ def fmt_date(d: datetime, lab: dict) -> str:
 
 
 def heading(brief: dict, lab: dict) -> str:
-    n = brief["window_days"]
-    return lab["top_one"] if n == 1 else lab["top_n"].format(n=n)
+    n, c = brief["window_days"], len(brief["articles"])
+    key = ("single_" if c == 1 else "top_") + ("one" if n == 1 else "n")
+    return lab[key].format(n=n, c=c)
 
 
 def render_html(brief: dict, lab: dict, date_str: str) -> str:
@@ -211,6 +229,12 @@ def render_html(brief: dict, lab: dict, date_str: str) -> str:
     cards = "".join(card(i, a) for i, a in enumerate(brief["articles"], 1))
     note = (f'<tr><td class="mu" style="padding:8px 4px 0;{f(13, 19, extra="font-style:italic;")};color:{MUTED}">{esc(brief["note"])}</td></tr>'
             if brief["note"] else "")
+    trends = (f"""
+<tr><td style="padding:0 0 16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="abg" style="background:{ACCENT_BG};border-radius:14px"><tr><td class="pad" style="padding:24px 36px">
+<p class="ac" style="margin:0 0 8px;{f(12, 16, weight=700)};letter-spacing:1px;text-transform:uppercase;color:{ACCENT}">{esc(lab['trends'])}</p>
+<p class="ink" style="margin:0;{f(16, 26)};color:{INK}">{esc(brief['trends'])}</p>
+</td></tr></table></td></tr>""" if brief["trends"] else "")
     preheader = esc(brief["articles"][0]["title"])
     return f"""<!DOCTYPE html>
 <html lang="{esc(brief['lang'])}"><head><meta charset="utf-8">
@@ -237,13 +261,15 @@ body,.bg{{background:#15181c!important}}
 <h1 class="ink" style="margin:0 0 6px;{f(32, 38, weight=700, serif=True)};color:{INK}">{esc(brief['subject'][:1].upper() + brief['subject'][1:])}</h1>
 <p class="mu" style="margin:0;{f(14, 20)};color:{MUTED}">{esc(date_str)}</p></td></tr>
 <tr><td style="padding:0 4px 14px"><h2 class="ink" style="margin:0;{f(13, 18, weight=700)};letter-spacing:1px;text-transform:uppercase;color:{INK}">{esc(heading(brief, lab))}</h2></td></tr>
-{cards}{note}
+{trends}{cards}{note}
 <tr><td class="mu" style="padding:24px 4px 0;border-top:1px solid {LINE};{f(12, 18)};color:{MUTED}">{esc(lab['footer'])}</td></tr>
 </table></td></tr></table></body></html>"""
 
 
 def render_text(brief: dict, lab: dict, date_str: str) -> str:
     lines = [f"{brief['subject']} — {date_str}", "", heading(brief, lab).upper(), ""]
+    if brief["trends"]:
+        lines += [f"{lab['trends']}: {brief['trends']}", ""]
     for i, a in enumerate(brief["articles"], 1):
         lines += [f"{i}. {a['title']}", f"{lab['source']}: {a['source']}", a["summary"]]
         if a["from_excerpt"]:
@@ -252,6 +278,146 @@ def render_text(brief: dict, lab: dict, date_str: str) -> str:
     if brief["note"]:
         lines += [brief["note"], ""]
     return "\n".join(lines).rstrip() + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# Verification (runs on the OUTPUT, before anything is sent)
+# --------------------------------------------------------------------------- #
+
+VOID_TAGS = {"meta", "br", "hr", "img", "link", "input"}
+GMAIL_CLIP_BYTES = 102 * 1024  # Gmail clips messages above ~102 KB and hides the end
+
+
+class _Page(HTMLParser):
+    """Collects what a mail client would show: structure problems, links and text blocks."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack, self.problems = [], []
+        self.hrefs, self.h2s, self.ps, self.scripts = [], [], [], 0
+        self.title = ""
+        self._buf = None  # (tag, [chunks]) while inside h2/p/title
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in VOID_TAGS:
+            self.stack.append(tag)
+        if tag == "a":
+            self.hrefs.append(dict(attrs).get("href", ""))
+        elif tag == "script":
+            self.scripts += 1
+        elif tag in ("h2", "p", "title"):
+            self._buf = (tag, [])
+
+    def handle_data(self, data):
+        if self._buf:
+            self._buf[1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag in VOID_TAGS:
+            return
+        if not self.stack or self.stack[-1] != tag:
+            self.problems.append(f"unbalanced </{tag}>")
+            if tag in self.stack:
+                while self.stack and self.stack.pop() != tag:
+                    pass
+        else:
+            self.stack.pop()
+        if self._buf and self._buf[0] == tag:
+            text = " ".join("".join(self._buf[1]).split())
+            if tag == "title":
+                self.title = text
+            else:
+                (self.h2s if tag == "h2" else self.ps).append(text)
+            self._buf = None
+
+
+def verify_email(brief: dict, out: dict, date_str: str) -> dict:
+    """Check the rendered email against the brief it came from. Independent of the renderer's
+    own string building: the HTML is parsed back and compared with the source. `errors` block
+    the send; `warnings` are reported but never block."""
+    errors, warnings = [], []
+    html_doc, text, subject = out["html"], out["text"], out["subject"]
+    lab, arts = LABELS[brief["lang"]], brief["articles"]
+
+    page = _Page()
+    page.feed(html_doc)
+    page.close()
+    errors += page.problems[:3]
+    if page.stack:
+        errors.append(f"unclosed tags: {', '.join(page.stack[:5])}")
+    if not html_doc.lstrip().lower().startswith("<!doctype html"):
+        errors.append("html: missing doctype")
+    if page.scripts:
+        errors.append("html: contains a <script> tag")
+
+    # Subject and leftovers of unformatted templates.
+    if not subject.strip():
+        errors.append("subject is empty")
+    for name, blob in (("subject", subject), ("html", html_doc), ("text", text)):
+        left = re.findall(r"\{[a-z_]+\}", re.sub(r"<style.*?</style>", "", blob, flags=re.S))
+        if left:
+            errors.append(f"{name}: unformatted placeholder {left[0]}")
+    if not page.title:
+        errors.append("html: empty <title>")
+    if date_str not in html_doc or date_str not in text:
+        errors.append("date line missing from html or text")
+
+    # Heading shows the real number of articles.
+    c = len(arts)
+    if heading(brief, lab) not in page.h2s:
+        errors.append(f"html: heading {heading(brief, lab)!r} not found")
+
+    # Every article is complete, in order, in both parts, with a single working link.
+    card_titles = [h for h in page.h2s if h != heading(brief, lab)]
+    if card_titles != [a["title"] for a in arts]:
+        errors.append(f"html: article titles/order differ from the brief ({len(card_titles)} cards for {c} articles)")
+    if page.hrefs != [a["url"] for a in arts]:
+        errors.append(f"html: links differ from the brief ({len(page.hrefs)} links for {c} articles)")
+    for i, a in enumerate(arts, 1):
+        if a["summary"] not in page.ps:
+            errors.append(f"article {i}: summary missing or altered in html")
+        for what in ("title", "summary", "url"):
+            if a[what] not in text:
+                errors.append(f"article {i}: {what} missing from text part")
+        if a["source"] and a["source"] not in html_doc.replace("&amp;", "&"):
+            errors.append(f"article {i}: source name missing from html")
+        if not a["source"]:
+            warnings.append(f"article {i}: no source name")
+        if len(re.findall(r"[.!?…](?:\s|$)", a["summary"])) > 3:
+            warnings.append(f"article {i}: summary has more than 3 sentences")
+    if any("news.google.com" in h for h in page.hrefs):
+        errors.append("html: a news.google.com link slipped through")
+    domains = [urlparse(a["url"]).netloc.lower().removeprefix("www.") for a in arts]
+    if len(set(domains)) < len(domains):
+        warnings.append("two articles share a domain (diversity rule)")
+    if len({a["url"] for a in arts}) < c:
+        errors.append("duplicate article url")
+
+    # Trends summary: mandatory for the skill, rendered when present.
+    tr = brief["trends"]
+    if not tr:
+        errors.append("trends summary missing (3 or 4 short sentences)")
+    else:
+        if tr not in page.ps:
+            errors.append("trends: not found in html")
+        if tr not in text:
+            errors.append("trends: not found in text part")
+        k = len(re.findall(r"[.!?…](?:\s|$)", tr))
+        if not 2 <= k <= 4:
+            warnings.append(f"trends has {k} sentences (expected 3 or 4, minimum 2)")
+
+    if brief["note"] and (brief["note"] not in page.ps and brief["note"] not in html_doc.replace("&#x27;", "'")):
+        warnings.append("note not found in html")
+
+    # Delivery constraints.
+    size = len(html_doc.encode("utf-8"))
+    if size > GMAIL_CLIP_BYTES:
+        errors.append(f"html is {size // 1024} KB: Gmail clips messages above 102 KB")
+    elif size > 80 * 1024:
+        warnings.append(f"html is {size // 1024} KB, close to the 102 KB Gmail clipping limit")
+    if not out["email"]:
+        errors.append("no recipient configured: run `render_email.py config --to ... --from ...`")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
 # --------------------------------------------------------------------------- #
@@ -286,10 +452,12 @@ def build_email(args) -> dict:
         p.write_text(html_doc, encoding="utf-8")
         html_path = str(p)
     em = read_config().get("email") or {}
-    return {"subject": lab["subject_line"].format(s=brief["subject"][:1].upper() + brief["subject"][1:], d=date_str),
-            "html_path": html_path,
-            "email": {"to": em["to"], "from": em["from"]} if em.get("to") and em.get("from") else None,
-            "text": render_text(brief, lab, date_str), "html": html_doc}
+    out = {"subject": lab["subject_line"].format(s=brief["subject"][:1].upper() + brief["subject"][1:], d=date_str),
+           "html_path": html_path,
+           "email": {"to": em["to"], "from": em["from"]} if em.get("to") and em.get("from") else None,
+           "text": render_text(brief, lab, date_str), "html": html_doc}
+    out["verify"] = verify_email(brief, out, date_str)
+    return out
 
 
 def run_render(args) -> int:
@@ -300,6 +468,17 @@ def run_render(args) -> int:
         return 1
     print(json.dumps(out, ensure_ascii=False))
     return 0
+
+
+def run_verify(args) -> int:
+    """Render and verify only: prints the report, never the HTML (cheap in tokens). Exit 0 ok, 5 errors."""
+    try:
+        out = build_email(args)
+    except (OSError, ValueError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 1
+    print(json.dumps({**out["verify"], "html_path": out["html_path"], "to": (out["email"] or {}).get("to")}, ensure_ascii=False))
+    return 0 if out["verify"]["ok"] else 5
 
 
 def load_dotenv() -> None:
@@ -346,6 +525,10 @@ def run_send(args) -> int:
     if not out["email"]:
         print(json.dumps({"error": "no recipient configured: run `render_email.py config --to ... --from ...`"}))
         return 1
+    if not out["verify"]["ok"]:
+        print(json.dumps({"error": "verification failed, nothing sent", "verify": out["verify"],
+                          "html_path": out["html_path"]}, ensure_ascii=False))
+        return 5
     key = api_key()
     if not key:
         print(json.dumps({"error": "no Resend API key: set $RESEND_API_KEY or run `render_email.py config --api-key ...`"}))
@@ -372,7 +555,7 @@ def run_send(args) -> int:
         print(json.dumps({"error": f"resend api unreachable: {e}", "html_path": out["html_path"]}))
         return 4
     print(json.dumps({"sent": True, "id": body.get("id", ""), "to": out["email"]["to"], "subject": out["subject"],
-                      "html_path": out["html_path"]}, ensure_ascii=False))
+                      "html_path": out["html_path"], "warnings": out["verify"]["warnings"]}, ensure_ascii=False))
     return 0
 
 
@@ -409,6 +592,10 @@ def main(argv=None) -> int:
     r.add_argument("--date", help="YYYY-MM-DD shown in the header (default today)")
     r.add_argument("--no-save", action="store_true", help="do not write briefs/<run>.html")
     r.set_defaults(func=run_render)
+    v = sub.add_parser("verify", help="render, then check the email against the brief; prints the report only")
+    v.add_argument("--input", required=True, help="brief JSON file, or - for stdin")
+    v.add_argument("--date", help="YYYY-MM-DD shown in the header (default today)")
+    v.set_defaults(func=run_verify)
     sd = sub.add_parser("send", help="render and send through the Resend REST API (MCP fallback)")
     sd.add_argument("--input", required=True, help="brief JSON file, or - for stdin")
     sd.add_argument("--date", help="YYYY-MM-DD shown in the header (default today)")

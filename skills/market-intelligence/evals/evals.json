@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "Fais-moi une veille sur le commerce agentique, juste ce qui est sorti aujourd'hui.",
-      "expected_output": "A brief written in French (language of the request): a 'Top 5 des articles du jour' title, then 5 articles each with a source line naming the outlet only, a summary paragraph of 2 or 3 short sentences (no bullets, no 'Pourquoi c'est important', no 'confirmé par' / 'source unique'), and the publisher URL (never news.google.com). No 'Also on the radar' / 'Aussi sur le radar' list, no keys and no preamble. The script was run once, at most 10 tavily_search and 3 tavily_extract calls, then mark was executed with the 5 keys.",
+      "expected_output": "A brief written in French (language of the request): a 'Top 5 des articles du jour' title, then a 'Tendances' paragraph of 3 or 4 short sentences summarizing the trends across the 5 articles, then 5 articles each with a source line naming the outlet only, a summary paragraph of 2 or 3 short sentences (no bullets, no 'Pourquoi c'est important', no 'confirmé par' / 'source unique'), and the publisher URL (never news.google.com). No 'Also on the radar' / 'Aussi sur le radar' list, no keys and no preamble. The script was run once, at most 10 tavily_search and 3 tavily_extract calls, then mark was executed with the 5 keys.",
       "files": []
     },
     {
       "id": 2,
       "prompt": "What happened around Shopify this week? I want the stories that matter for a PM, with sources.",
-      "expected_output": "Brief in English, 7-day window explicitly requested (--days 7, no widening), title 'Top 5 articles of the last 7 days', 5 stories each with outlet-only source line and a 2-3 sentence summary paragraph (no bullets, no 'Why it matters', no corroboration line). No list of the other candidates. Mark executed at the end.",
+      "expected_output": "Brief in English, 7-day window explicitly requested (--days 7, no widening), title 'Top 5 articles of the last 7 days', a Trends paragraph of 3 or 4 short sentences right under it, then 5 stories each with outlet-only source line and a 2-3 sentence summary paragraph (no bullets, no 'Why it matters', no corroboration line). No list of the other candidates. Mark executed at the end.",
       "files": []
     },
     {
@@ -22,13 +22,13 @@
     {
       "id": 4,
       "prompt": "Email me a brief on agentic commerce from the last 3 days.",
-      "expected_output": "Same fetch/Tavily flow with --days 3. The brief is written as JSON to ~/.market-intelligence/briefs/<run_id>.json, rendered with `render_email.py render`, then sent with the Resend MCP send-email tool to the configured address (from onboarding@resend.dev), with subject/html/text passed verbatim and no cc/bcc/replyTo. Chat reply is a few lines: recipient, 5 headlines, html_path (no full brief). `mark` runs after the send.",
+      "expected_output": "Same fetch/Tavily flow with --days 3. The brief is written as JSON (including a 3-4 sentence `trends` field) to ~/.market-intelligence/briefs/<run_id>.json, rendered with `render_email.py render`, then sent with the Resend MCP send-email tool to the configured address (from onboarding@resend.dev), with subject/html/text passed verbatim and no cc/bcc/replyTo. Chat reply is a few lines: recipient, 5 headlines, html_path (no full brief). `mark` runs after the send.",
       "files": []
     },
     {
       "id": 5,
       "prompt": "Give me a news brief on Shopify today.",
-      "expected_output": "Chat delivery only: markdown brief in the mandated format. render_email.py is not run and no email is sent, because the user did not say 'email me'.",
+      "expected_output": "Chat delivery only: markdown brief in the mandated format, with the trends paragraph under the title. render_email.py is not run and no email is sent, because the user did not say 'email me'.",
       "files": []
     },
     {
@@ -53,6 +53,18 @@
       "id": 9,
       "prompt": "Give me a news brief on agentic commerce. (Simulate: one of the top-5 URLs extracts as a two-sentence teaser ending with 'Subscribe to keep reading'.)",
       "expected_output": "The paywalled article is not summarized and not written from its search excerpt: it is substituted with the next candidate (a second extraction is run) and simply dropped, not shown anywhere in the brief; the substitution is mentioned in the closing italic line. No domain from the `paywall` list in sources.json appears among the candidates; at most 3 tavily_extract calls.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "Email me a brief on Shopify. (Simulate: the first brief JSON written lacks the `trends` field.)",
+      "expected_output": "`render` (or `send`) reports `verify.ok: false` with 'trends summary missing'; nothing is sent. The model adds a 3-4 sentence `trends` to the JSON, re-renders, gets `ok: true`, then calls send-email with the subject/html/text of that second render, verbatim. At most 2 fix attempts, and the loop does not touch the HTML.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "Email me a brief on Shopify. (Simulate: the brief JSON keeps failing verification after two fixes.)",
+      "expected_output": "After 2 fix attempts the email is not sent. The reply gives the full chat brief (with the trends paragraph under the title) ending with the italic line 'Email not sent: verification failed, <first error>.'; `mark` still runs.",
       "files": []
     }
   ]
